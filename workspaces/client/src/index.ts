@@ -4,7 +4,8 @@ import { UI } from './ui';
 import { ConnectWalletCanvasScene, createConnectUi } from './connect-wallet-ui';
 import { loadConfig } from './config';
 import { GAME_HEIGHT, GAME_WIDTH } from './consts';
-import { GameScene } from './game-scene';
+import  GameScene  from './game-scene';
+import Snake from './objects/snake';
 
 async function run() {
     try {
@@ -13,7 +14,7 @@ async function run() {
 
         // prepare UI elements
         // you can pass 'html' instead of 'canvas' here
-        const connectUi = await createConnectUi(config, 'canvas');
+        const connectUi = await createConnectUi(config, 'html');
         const gameFi = connectUi.gameFi;
         const gameUi = new UI(config, gameFi);
 

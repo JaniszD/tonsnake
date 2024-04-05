@@ -1,4 +1,7 @@
+import 'phaser';
 import * as Phaser from 'phaser';
+import Snake from './objects/snake';
+import Food from './objects/food';
 import { UI } from './ui';
 import { BG_HEIGHT, COLUMN_ACCEL, COLUMN_TIME_ACCEL, FLAP_THRESH, GAME_HEIGHT, GAME_WIDTH, GAP_END, GAP_MAX, GAP_MIN, GAP_START, GRAVITY, INITIAL_COLUMN_INTERVAL, INITIAL_COLUMN_VELOCITY, JUMP_COOLDOWN, JUMP_VEL, PIPE_HEIGHT, PIPE_SCALE, PIPE_WIDTH } from './consts';
 
@@ -21,20 +24,21 @@ async function submitPlayed(endpoint: string, walletAddress: string, score: numb
     })).json();
 }
 
-export class GameScene extends Phaser.Scene {
-    character!: Phaser.GameObjects.Image;
-    columnGroup!: Phaser.Physics.Arcade.Group;
-    lastJump: number = 0;
-    columnVelocity = INITIAL_COLUMN_VELOCITY;
-    tracked: { r1: Phaser.GameObjects.Image; r2: Phaser.GameObjects.Image; scored: boolean; }[] = [];
+export default class GameScene extends Phaser.Scene {
+    snake: Snake;
+    food: Food;
+    cursors: any;
     score: number = 0;
-    columnInterval = INITIAL_COLUMN_INTERVAL;
-    lastColumn = 0;
     background!: Phaser.GameObjects.TileSprite;
+    tracked: { r1: Phaser.GameObjects.Image; r2: Phaser.GameObjects.Image; scored: boolean; }[] = [];
     firstLaunch: boolean = true;
+    character!: Phaser.GameObjects.Image;
 
+    
+    
+    
     constructor(private ui: UI) {
-        super();
+        super('Main');
 
         ui.onPlayClicked(() => {
             ui.hideShop();
@@ -49,54 +53,23 @@ export class GameScene extends Phaser.Scene {
     }
 
     preload() {
-        this.load.image('pipe-green', 'assets/pipe-green.png');
-        this.load.image('pipe-red', 'assets/pipe-red.png');
-        this.load.image('bird-up', 'assets/bluebird-upflap.png');
-        this.load.image('bird-down', 'assets/bluebird-downflap.png');
-        this.load.image('bird-mid', 'assets/bluebird-midflap.png');
+        this.load.image('food', '../assets/food.png');
+        this.load.image('body', '../assets/body.png');
         this.load.image('bg', 'assets/background-day.png');
     }
-
     create() {
         const realWidth = this.getRealGameWidth();
         this.background = this.add.tileSprite(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 'bg');
         this.background.tileScaleX = this.background.tileScaleY = GAME_HEIGHT / BG_HEIGHT;
-        this.character = this.add.image(realWidth / 8, GAME_HEIGHT / 2, 'bird-mid');
-        this.physics.add.existing(this.character);
-        this.columnGroup = this.physics.add.group();
-        this.physics.add.overlap(this.character, this.columnGroup, () => {
-            this.onOverlapped();
-        });
-        const charBody = this.character.body as Phaser.Physics.Arcade.Body;
-        charBody.setCollideWorldBounds(true, undefined, undefined, true);
-        charBody.world.on('worldbounds', () => {
-            this.onOverlapped();
-        });
-        charBody.setAccelerationY(GRAVITY);
-        charBody.setVelocityY(-JUMP_VEL);
-        this.input.on('pointerdown', () => this.onInput());
-        this.input.keyboard?.on('keydown', () => this.onInput());
-
-        if (this.firstLaunch) {
-            this.firstLaunch = false;
-            this.scene.pause();
-        }
-
-        this.lastJump = Date.now();
-        this.columnVelocity = INITIAL_COLUMN_VELOCITY;
-        this.columnInterval = INITIAL_COLUMN_INTERVAL;
+        this.snake = new Snake(this, 8, 8);
+        this.food = new Food(this, 3, 4);
+        this.cursors = this.input.keyboard.createCursorKeys();
         this.tracked = [];
         this.score = 0;
         this.ui.setScore(this.score);
         this.lastColumn = 0;
-    }
-
-    onInput() {
-        const time = Date.now();
-        if (time > this.lastJump + JUMP_COOLDOWN) {
-            this.lastJump = time;
-            (this.character.body as Phaser.Physics.Arcade.Body).setVelocityY(-JUMP_VEL);
-        }
+        
+        
     }
 
     async onOverlapped() {
@@ -128,52 +101,72 @@ export class GameScene extends Phaser.Scene {
         this.ui.hideLoading();
     }
 
-    update(time: number, delta: number): void {
-        this.background.tilePositionX += 1;
-        const vel = (this.character.body as Phaser.Physics.Arcade.Body).velocity.y;
-        if (vel < -FLAP_THRESH) {
-            this.character.setTexture('bird-down');
-        } else if (vel > FLAP_THRESH) {
-            this.character.setTexture('bird-up');
-        } else {
-            this.character.setTexture('bird-mid');
+
+    update(time: number, delta: number) {
+        if (!this.snake.alive) {
+            this.onOverlapped();
+            return;
         }
-        this.columnInterval -= COLUMN_TIME_ACCEL * delta;
-        if (time > this.lastColumn + this.columnInterval) {
-            this.lastColumn = time;
-            this.createColumn();
+
+
+        if (this.cursors.left.isDown) {
+            this.snake.faceLeft();
+        } else if (this.cursors.right.isDown) {
+            this.snake.faceRight();
+        } else if (this.cursors.up.isDown) {
+            this.snake.faceUp();
+        } else if (this.cursors.down.isDown) {
+            this.snake.faceDown();
         }
-        this.columnVelocity -= COLUMN_ACCEL * delta;
-        this.columnGroup.setVelocityX(this.columnVelocity);
-        for (let i = 0; i < this.tracked.length; i++) {
-            const t = this.tracked[i];
-            if (!t.scored && t.r1.x + PIPE_WIDTH / 2 < (this.character.body as Phaser.Physics.Arcade.Body).x - (this.character.body as Phaser.Physics.Arcade.Body).width / 2) {
-                t.scored = true;
-                this.score++;
+
+        if (this.snake.update(time)) {
+
+            if (this.snake.collideWithFood(this.food)) {
+                this.score++; // Zwiększ liczbę punktów
                 this.ui.setScore(this.score);
-            }
-            if (t.r1.x < -PIPE_WIDTH / 2) {
-                this.tracked.splice(i, 1);
-                i--;
-                t.r1.destroy(true);
-                t.r2.destroy(true);
+                this.repositionFood();
             }
         }
     }
 
-    createColumn() {
-        const realWidth = this.getRealGameWidth();
-        const gapStart = GAP_START + Math.random() * (GAP_END - GAP_START);
-        const gapSize = GAP_MIN + Math.random() * (GAP_MAX - GAP_MIN);
-        const r1 = this.add.image(realWidth + PIPE_WIDTH / 2, gapStart - PIPE_HEIGHT / 2, this.ui.getCurrentPipe());
-        r1.scale = PIPE_SCALE;
-        r1.flipY = true;
-        const r2 = this.add.image(realWidth + PIPE_WIDTH / 2, gapStart + gapSize + PIPE_HEIGHT / 2, this.ui.getCurrentPipe());
-        r2.scale = PIPE_SCALE;
-        this.tracked.push({
-            r1, r2, scored: false,
-        });
-        this.columnGroup.add(r1);
-        this.columnGroup.add(r2);
+    repositionFood() {
+
+        var testGrid = [];
+
+        for (var y = 0; y < 37; y++) {
+            testGrid[y] = [];
+
+            for (var x = 0; x < 24; x++) {
+                testGrid[y][x] = true;
+            }
+        }
+
+        this.snake.updateGrid(testGrid);
+
+        var validLocations = [];
+
+        for (var y = 0; y < 30; y++) {
+            for (var x = 0; x < 40; x++) {
+                if (testGrid[y][x] === true) {
+                    validLocations.push({ x: x, y: y });
+                }
+            }
+        }
+
+        if (validLocations.length > 0) {
+            var pos = Phaser.Math.RND.pick(validLocations);
+
+            this.food.setPosition(pos.x * 16, pos.y * 16);
+
+            return true;
+        }
+        else {
+            return false;
+        }
+
     }
 }
+\
+
+
+
